@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "titans"
+version = "0.1.0"
+description = "Titans: Learning to Memorize at Test Time - PyTorch Implementation"
+readme = "titans/README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Implementation Author"}
+]
+keywords = ["deep learning", "transformers", "memory", "language modeling"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "torch>=2.0.0",
+    "tqdm>=4.64.0",
+    "datasets>=2.14.0",
+    "transformers>=4.30.0",
+    "bitsandbytes>=0.41.0",
+    "accelerate>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=22.0",
+    "isort>=5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["titans*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100

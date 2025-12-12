@@ -1,0 +1,7 @@
+__pycache__
+checkpoints
+*.egg-info
+*.pt
+*.bin
+*.safetensors
+wandb
