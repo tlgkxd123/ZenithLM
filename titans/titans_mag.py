@@ -29,7 +29,7 @@ class TitansMAGBlock(nn.Module):
         super().__init__()
         self.d_model = d_model
         
-        self.long_term_memory = NeuralMemory(d_model, memory_depth, chunk_size=64)
+        self.long_term_memory = NeuralMemory(d_model, memory_depth, chunk_size=8)
         self.persistent_memory = PersistentMemory(n_persistent, d_model)
         self.attention = SlidingWindowAttention(d_model, n_heads, window_size, dropout)
         
