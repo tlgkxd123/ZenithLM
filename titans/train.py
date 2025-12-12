@@ -263,11 +263,14 @@ def main():
     parser.add_argument("--d_model", type=int, default=1024)
     parser.add_argument("--n_layers", type=int, default=16)
     parser.add_argument("--seq_len", type=int, default=2048)
-    parser.add_argument("--batch_size", type=int, default=4)  # Reduced for safety
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--grad_accum", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--max_steps", type=int, default=100000)
     parser.add_argument("--compile", action="store_true", help="Enable torch.compile")
+    parser.add_argument("--quantize", type=str, default="none", 
+                        choices=["none", "nf4", "fp4"],
+                        help="4-bit quantization: nf4, fp4, or none")
     args = parser.parse_args()
 
     # Dist setup
@@ -277,7 +280,6 @@ def main():
 
     # Data
     tokenizer = get_tokenizer()
-    # Hardcoded config for simplicity based on user request "fineweb"
     ds_config = "sample-10BT" if args.dataset == "fineweb" else None
     dataset_name = "HuggingFaceFW/fineweb-edu" if args.dataset == "fineweb" else args.dataset
     
@@ -294,19 +296,26 @@ def main():
         dataset, batch_size=args.batch_size, num_workers=2, pin_memory=True
     )
     
-    # Model
+    # Model config
     config = TitansConfig(
         vocab_size=len(tokenizer),
         d_model=args.d_model,
         n_layers=args.n_layers,
-        n_heads=args.d_model // 64, # Auto heads
+        n_heads=args.d_model // 64,
         variant=args.variant,
         max_seq_len=args.seq_len
     )
     
-    model = TitansLM(config).cuda()
+    # Create model (quantized or full precision)
+    if args.quantize != "none":
+        if rank == 0:
+            print(f"🔢 Using {args.quantize.upper()} 4-bit quantization")
+        from titans.quantization import create_quantized_model
+        model = create_quantized_model(config, args.quantize)
+    else:
+        model = TitansLM(config).cuda()
     
-    # Compile for Hopper (Optional now)
+    # Compile (optional)
     if args.compile:
         if rank == 0: print("Compiling model...")
         model = torch.compile(model)
@@ -327,3 +336,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
