@@ -117,21 +117,6 @@ class NeuralMemoryMLP(nn.Module):
         h = x
         for i, w in enumerate(weights):
             # w: (B, Out, In), h: (B, Seq, In)
-            if i == 0 and h.shape[0] < 5:
-                # DEBUG from previous step (preserved)
-                print(f"[DEBUG] MLP L{i}: h={h.shape} w={w.shape} wT={w.transpose(1,2).shape}")
-            
-            # Ensure w is 3D
-            if w.dim() != 3:
-                print(f"[ERROR] w has {w.dim()} dims: {w.shape}. Reshaping/Fixing...")
-                # Try to recover if it's (4096, 4096) -> (1, 4096, 4096) broadcast
-                # But here it should be (B, Out, In)
-                
-            # Verify In dimension
-            if w.shape[2] != h.shape[2]:
-                print(f"[FATAL] In-dimension mismatch: h={h.shape}, w={w.shape}")
-                # This causes the [4, 1] error if w.shape[2] == 1
-                
             # x @ w.T -> (B, Seq, In) @ (B, In, Out) -> (B, Seq, Out)
             h = torch.matmul(h, w.transpose(1, 2))
             if i < len(weights) - 1:

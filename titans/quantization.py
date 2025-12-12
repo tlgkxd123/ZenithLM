@@ -25,6 +25,10 @@ def quantize_linear_layers(module: nn.Module, quantization_type: str = "nf4"):
     import bitsandbytes as bnb
     
     for name, child in module.named_children():
+        # SKIP NeuralMemory layers! They are dynamic states, not static weights.
+        if "memory" in name or "memory_mlp" in name or isinstance(child, (nn.Conv1d, nn.LayerNorm)):
+            continue
+            
         if isinstance(child, nn.Linear):
             # Skip small layers (embeddings usually handled separately)
             if child.in_features < 256 or child.out_features < 256:
