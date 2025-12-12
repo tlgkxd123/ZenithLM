@@ -15,12 +15,13 @@ else
 fi
 
 # Install dependencies (no venv needed on cloud instances)
-pip install -q --upgrade pip
-pip install -q torch --index-url https://download.pytorch.org/whl/cu124 2>/dev/null || true
-pip install -q datasets transformers bitsandbytes accelerate tqdm
+# We use --break-system-packages to bypass PEP 668 on managed environments like newer Ubuntu images
+pip install -q --upgrade pip --break-system-packages
+pip install -q torch --index-url https://download.pytorch.org/whl/cu124 --break-system-packages
+pip install -q datasets transformers bitsandbytes accelerate tqdm --break-system-packages
 
 # Install titans package
-pip install -q -e .
+pip install -q -e . --break-system-packages
 
 # Set environment
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
