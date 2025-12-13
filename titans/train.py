@@ -25,12 +25,10 @@ import argparse
 import time
 import shutil
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
 from rich.panel import Panel
-from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
-from rich.layout import Layout
 from rich.text import Text
 from rich import box
 
@@ -130,15 +128,15 @@ class TrainingProgressBar:
         else:
             eta = 0
         
-        # Calculate avg step time
-        avg_step_time = sum(self.step_times) / len(self.step_times) if self.step_times else 0
-        
-        # Build layout
-        layout = Layout()
-        
         # Header with progress
         progress_text = self._create_progress_bar()
         step_text = Text(f"Step {self.current_step:,} / {self.max_steps:,}", style="bold white")
+        
+        # Combine step and progress
+        header = Text()
+        header.append(step_text)
+        header.append("  ")
+        header.append(progress_text)
         
         # Metrics table
         metrics = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
@@ -147,7 +145,7 @@ class TrainingProgressBar:
         metrics.add_column("Metric", style="dim")
         metrics.add_column("Value", style="bold")
         
-        # Row 1: Loss and LR
+        # Row 1: Loss and Best
         loss_style = "green" if self.current_loss < self.best_loss else "yellow"
         metrics.add_row(
             "📉 Loss", f"[{loss_style}]{self.current_loss:.4f}[/]",
@@ -176,23 +174,11 @@ class TrainingProgressBar:
         
         # Loss sparkline
         loss_spark = self._create_sparkline(list(self.loss_history))
-        spark_text = Text(f"Loss trend: {loss_spark}", style="yellow")
+        spark_line = Text(f"📊 Loss trend: {loss_spark}", style="yellow")
         
-        # Combine into panel
-        content = Text()
-        content.append("\n")
-        content.append(step_text)
-        content.append("  ")
-        content.append(progress_text)
-        content.append("\n\n")
-        
-        # Build final panel with table
+        # Build final panel using Group
         return Panel(
-            Layout(
-                Layout(content, name="header", size=3),
-                Layout(metrics, name="metrics", size=5),
-                Layout(Panel(spark_text, border_style="dim", box=box.ROUNDED), name="sparkline", size=3),
-            ),
+            Group(header, "", metrics, "", spark_line),
             title="[bold cyan]🚀 Titans Training[/]",
             subtitle=f"[dim]Total tokens: {self.total_tokens:,}[/]",
             border_style="cyan",
