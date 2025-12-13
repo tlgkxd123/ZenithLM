@@ -191,8 +191,8 @@ class TrainingProgressBar:
         self.live = Live(
             self._build_display(),
             console=self.console,
-            refresh_per_second=4,
-            transient=False
+            refresh_per_second=10,
+            vertical_overflow="visible",
         )
         self.live.start()
     
@@ -425,6 +425,8 @@ class TitansTrainer:
         
         start_time = time.time()
         batch_tokens = 0
+        tokens_since_log = 0
+        running_loss = 0.0
         
         while step < self.max_steps:
             self.optimizer.zero_grad(set_to_none=True)
@@ -455,30 +457,31 @@ class TitansTrainer:
             self.scheduler.step()
             
             step += 1
+            step_tokens = batch_tokens * self.grad_accum_steps * (dist.get_world_size() if dist.is_initialized() else 1)
+            tokens_since_log += step_tokens
+            running_loss = accum_loss.item()
             
-            # Logging
+            # Update progress bar every step for real-time feedback
+            if self.rank == 0 and pbar:
+                elapsed = time.time() - start_time
+                tps = int(tokens_since_log / elapsed) if elapsed > 0 else 0
+                lr = self.scheduler.get_last_lr()[0]
+                pbar.update(
+                    step=step,
+                    loss=running_loss,
+                    lr=lr,
+                    tokens_per_sec=tps,
+                    batch_tokens=step_tokens
+                )
+            
+            # Full logging with loss reduction
             if step % self.log_every == 0:
-                # Reduce loss across GPUs for logging
                 if dist.is_initialized():
                     dist.all_reduce(accum_loss, op=dist.ReduceOp.AVG)
                 
-                if self.rank == 0 and pbar:
-                    lr = self.scheduler.get_last_lr()[0]
-                    elapsed = time.time() - start_time
-                    tokens_this_interval = (self.log_every * self.grad_accum_steps * 
-                           batch_tokens * 
-                           (dist.get_world_size() if dist.is_initialized() else 1))
-                    tps = int(tokens_this_interval / elapsed) if elapsed > 0 else 0
-                    
-                    pbar.update(
-                        step=step,
-                        loss=accum_loss.item(),
-                        lr=lr,
-                        tokens_per_sec=tps,
-                        batch_tokens=tokens_this_interval
-                    )
-                    start_time = time.time()
-                
+                # Reset counters
+                start_time = time.time()
+                tokens_since_log = 0
                 accum_loss.fill_(0.0)
             
             if step % 1000 == 0 and self.rank == 0:
