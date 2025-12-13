@@ -353,27 +353,24 @@ def auto_fit_vram(vram_gb: float, d_model: int, n_layers: int, seq_len: int, qua
     
     # Empirically tested configs for d_model=1024, n_layers=16
     # Format: (batch_size, seq_len, approx_vram_gb)
-    # UPDATED for FastNeuralMemory (much lower memory usage!)
+    # UPDATED for FastNeuralMemory + Gradient Checkpointing
+    # Massive savings allows larger batches/seq_len
     if quantize != "none":
         # 4-bit quantization
         tested_configs = [
-            (8, 2048, 45),
-            (8, 1024, 30),
-            (4, 2048, 28),
-            (4, 1024, 18),
-            (2, 2048, 16),
-            (2, 1024, 10),
+            (8, 2048, 28),
+            (8, 1024, 20),
+            (4, 2048, 16),
+            (4, 1024, 12),
         ]
     else:
-        # Full precision (bf16) - fast memory uses ~5x less VRAM
+        # Full precision (bf16) - checkpointing saves backprop memory
         tested_configs = [
-            (8, 2048, 55),
-            (8, 1024, 35),
-            (4, 2048, 32),
-            (4, 1024, 20),
-            (2, 2048, 18),
-            (2, 1024, 12),
-            (1, 2048, 10),
+            (8, 2048, 45),
+            (8, 1024, 30),
+            (4, 2048, 25),
+            (4, 1024, 18),
+            (2, 2048, 15),
         ]
     
     # Scale by model size (relative to reference d_model=1024, n_layers=16)

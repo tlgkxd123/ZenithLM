@@ -29,6 +29,8 @@ class MemoryState:
         )
 
 
+import torch.utils.checkpoint as checkpoint
+
 class FastNeuralMemory(nn.Module):
     """
     Ultra-fast Neural Long-term Memory using vectorized updates.
@@ -37,7 +39,7 @@ class FastNeuralMemory(nn.Module):
     1. Single-layer memory MLP (vs 2-layer) - 2x faster
     2. Analytic gradients for MSE loss - 100x faster than autograd
     3. Vectorized chunk updates - 10x faster than per-timestep
-    4. torch.compile compatible
+    4. Gradient Checkpointing - massive memory savings
     """
     
     def __init__(
@@ -57,11 +59,10 @@ class FastNeuralMemory(nn.Module):
         self.W_V = nn.Linear(d_model, d_model, bias=False)
         self.W_Q = nn.Linear(d_model, d_model, bias=False)
         
-        # Single linear layer as memory (much faster than MLP)
-        # Memory function: M(k) = k @ W^T
+        # Single linear layer as memory
         self.memory_dim = d_model
         
-        # Learning rate projections (per-token)
+        # Learning rate projections
         self.theta_proj = nn.Linear(d_model, 1)
         self.eta_proj = nn.Linear(d_model, 1)
         self.alpha_proj = nn.Linear(d_model, 1)
@@ -73,7 +74,7 @@ class FastNeuralMemory(nn.Module):
         
         self.layer_norm = nn.LayerNorm(d_model)
         
-        # Initial memory weights
+        # Initial memory weights buffer
         self.register_buffer(
             'init_weight', 
             torch.zeros(d_model, d_model) * 0.01
@@ -81,71 +82,57 @@ class FastNeuralMemory(nn.Module):
     
     def get_initial_state(self, batch_size: int, device: torch.device) -> MemoryState:
         """Initialize memory state."""
-        # Single weight matrix per batch: (B, d_model, d_model)
-        # Ensure buffer is on correct device/dtype
+        # Check buffer device
         if self.init_weight.device != device:
             self.init_weight.data = self.init_weight.to(device)
             
         W = self.init_weight.unsqueeze(0).expand(batch_size, -1, -1).clone()
-        M = torch.zeros_like(W)  # Momentum
+        M = torch.zeros_like(W)
         return MemoryState(weights=(W,), momentum=(M,))
     
     def retrieve(self, queries: torch.Tensor, state: MemoryState) -> torch.Tensor:
         """Fast retrieval: output = queries @ W^T"""
-        W = state.weights[0]  # (B, D, D)
-        # queries: (B, L, D) -> (B, L, D)
+        W = state.weights[0]
         return torch.bmm(queries, W.transpose(1, 2))
     
-    # Removed torch.compile to avoid CUDAGraphs issues and device errors
     def update_memory_vectorized(
         self,
-        state: MemoryState,
+        weights: torch.Tensor,
+        momentum: torch.Tensor,
         x: torch.Tensor,
         keys: torch.Tensor,
         values: torch.Tensor
-    ) -> MemoryState:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Vectorized memory update for entire chunk.
-        
-        Uses ANALYTIC gradients for MSE loss:
-        Loss = 0.5 * ||M(k) - v||^2 = 0.5 * ||k @ W^T - v||^2
-        dL/dW = (k @ W^T - v)^T @ k = (pred - v)^T @ k
-        
-        This avoids autograd entirely!
+        State tensors passed explicitly for checkpoint compatibility.
         """
         B, L, D = x.shape
-        W = state.weights[0]  # (B, D, D)
-        M = state.momentum[0]  # (B, D, D)
+        W = weights
+        M = momentum
         
-        # Compute learning rates for all timesteps
-        theta = torch.sigmoid(self.theta_proj(x))  # (B, L, 1)
-        eta = torch.sigmoid(self.eta_proj(x))      # (B, L, 1)
-        alpha = torch.sigmoid(self.alpha_proj(x))  # (B, L, 1)
+        # Compute learning rates
+        theta = torch.sigmoid(self.theta_proj(x))
+        eta = torch.sigmoid(self.eta_proj(x))
+        alpha = torch.sigmoid(self.alpha_proj(x))
         
-        # Average rates across chunk (vectorized approximation)
-        theta_avg = theta.mean(dim=1, keepdim=True)  # (B, 1, 1)
+        # Average rates across chunk
+        theta_avg = theta.mean(dim=1, keepdim=True)
         eta_avg = eta.mean(dim=1, keepdim=True)
         alpha_avg = alpha.mean(dim=1, keepdim=True)
         
-        # Prediction for all timesteps: (B, L, D)
+        # Prediction
         pred = torch.bmm(keys, W.transpose(1, 2))
         
-        # Error: (B, L, D)
+        # Analytic gradient
         error = pred - values
-        
-        # Analytic gradient for entire chunk (accumulated):
-        # dL/dW = sum_t (error_t^T @ key_t) = error^T @ keys
-        # error: (B, L, D), keys: (B, L, D)
-        # We want: (B, D, D) = (B, D, L) @ (B, L, D)
         grad_W = torch.bmm(error.transpose(1, 2), keys) / L
         
-        # Momentum update
+        # Update
         new_M = eta_avg * M - theta_avg * grad_W
-        
-        # Weight update with decay
         new_W = (1 - alpha_avg) * W + new_M
         
-        return MemoryState(weights=(new_W,), momentum=(new_M,))
+        return new_W, new_M
     
     def forward(
         self,
@@ -154,7 +141,7 @@ class FastNeuralMemory(nn.Module):
         return_state: bool = True
     ) -> Tuple[torch.Tensor, Optional[MemoryState]]:
         """
-        Fast forward pass with vectorized memory updates.
+        Fast forward pass with gradient checkpointing.
         """
         B, L, D = x.shape
         device = x.device
@@ -169,26 +156,43 @@ class FastNeuralMemory(nn.Module):
         
         outputs = []
         
-        # Process in chunks
+        # Current state tensors
+        curr_W = memory_state.weights[0]
+        curr_M = memory_state.momentum[0]
+        
+        # Process in chunks with checkpointing
         for start in range(0, L, self.chunk_size):
             end = min(start + self.chunk_size, L)
             
-            # Retrieve using queries
-            chunk_out = self.retrieve(queries[:, start:end], memory_state)
+            # Slice chunk data
+            q_chunk = queries[:, start:end]
+            x_chunk = x[:, start:end]
+            k_chunk = keys[:, start:end]
+            v_chunk = values[:, start:end]
+            
+            # Retrieve (using current W)
+            # Note: Retrieval uses state BEFORE update
+            chunk_out = torch.bmm(q_chunk, curr_W.transpose(1, 2))
             outputs.append(chunk_out)
             
-            # Update memory with this chunk's data
-            memory_state = self.update_memory_vectorized(
-                memory_state,
-                x[:, start:end],
-                keys[:, start:end],
-                values[:, start:end]
-            )
+            # Checkpoint the update step
+            # We must pass tensors, not MemoryState object, to checkpoint
+            if self.training and x.requires_grad:
+                curr_W, curr_M = checkpoint.checkpoint(
+                    self.update_memory_vectorized,
+                    curr_W, curr_M, x_chunk, k_chunk, v_chunk,
+                    use_reentrant=False
+                )
+            else:
+                curr_W, curr_M = self.update_memory_vectorized(
+                    curr_W, curr_M, x_chunk, k_chunk, v_chunk
+                )
         
         output = torch.cat(outputs, dim=1)
         output = self.layer_norm(output)
         
-        return (output, memory_state) if return_state else (output, None)
+        new_state = MemoryState(weights=(curr_W,), momentum=(curr_M,))
+        return (output, new_state) if return_state else (output, None)
 
 
 class NeuralMemory(FastNeuralMemory):
