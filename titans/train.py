@@ -376,9 +376,11 @@ class TitansTrainer:
         save_dir: str,
         log_every: int,
         rank: int,
+        compile_enabled: bool = False,
     ):
         self.model = model
         self.train_loader = train_loader
+        self.compile_enabled = compile_enabled
         
         # Enable gradient checkpointing to save memory
         if hasattr(model, "gradient_checkpointing_enable"):
@@ -455,7 +457,10 @@ class TitansTrainer:
                 
                 # BFloat16 context
                 if self.rank == 0 and pbar:
-                    pbar.set_status(f"Step {step}: Micro-batch {micro_step+1}/{self.grad_accum_steps} - Forward pass...")
+                    if step == 0 and micro_step == 0 and self.compile_enabled:
+                         pbar.set_status(f"Step {step}: Forward pass (Compiling JIT kernels, please wait 1-3 mins)...")
+                    else:
+                         pbar.set_status(f"Step {step}: Micro-batch {micro_step+1}/{self.grad_accum_steps} - Forward pass...")
                 
                 with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                     outputs = self.model(input_ids, labels=labels)
@@ -745,7 +750,8 @@ def main():
         
     trainer = TitansTrainer(
         model, train_loader, args.lr, args.max_steps, 
-        args.grad_accum, "checkpoints", 50, rank
+        args.grad_accum, "checkpoints", 50, rank,
+        compile_enabled=args.compile
     )
     
     trainer.train()
