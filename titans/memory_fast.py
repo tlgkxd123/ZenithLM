@@ -82,6 +82,10 @@ class FastNeuralMemory(nn.Module):
     def get_initial_state(self, batch_size: int, device: torch.device) -> MemoryState:
         """Initialize memory state."""
         # Single weight matrix per batch: (B, d_model, d_model)
+        # Ensure buffer is on correct device/dtype
+        if self.init_weight.device != device:
+            self.init_weight.data = self.init_weight.to(device)
+            
         W = self.init_weight.unsqueeze(0).expand(batch_size, -1, -1).clone()
         M = torch.zeros_like(W)  # Momentum
         return MemoryState(weights=(W,), momentum=(M,))
@@ -92,7 +96,7 @@ class FastNeuralMemory(nn.Module):
         # queries: (B, L, D) -> (B, L, D)
         return torch.bmm(queries, W.transpose(1, 2))
     
-    @torch.compile(mode="reduce-overhead", disable=not torch.cuda.is_available())
+    # Removed torch.compile to avoid CUDAGraphs issues and device errors
     def update_memory_vectorized(
         self,
         state: MemoryState,
