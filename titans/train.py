@@ -631,7 +631,7 @@ def main():
     parser.add_argument("--variant", default="mag")
     parser.add_argument("--dataset", default="fineweb")
     parser.add_argument("--d_model", type=int, default=1024)
-    parser.add_argument("--n_layers", type=int, default=16)
+    parser.add_argument("--n_layers", type=int, default=11, help="Number of layers (11 for ~300M params with d_model=1024)")
     parser.add_argument("--seq_len", type=int, default=None,
                         help="Sequence length (auto-calculated if not set)")
     parser.add_argument("--batch_size", type=int, default=None, 
@@ -639,7 +639,8 @@ def main():
     parser.add_argument("--grad_accum", type=int, default=None,
                         help="Gradient accumulation steps (auto-calculated if not set)")
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--max_steps", type=int, default=100000)
+    parser.add_argument("--max_steps", type=int, default=None, help="Max steps (overrides --max_tokens)")
+    parser.add_argument("--max_tokens", type=int, default=800_000_000_000, help="Total tokens to train on (default: 800B)")
     parser.add_argument("--compile", action="store_true", help="Enable torch.compile")
     parser.add_argument("--quantize", type=str, default="none", 
                         choices=["none", "nf4", "fp4"],
@@ -672,6 +673,20 @@ def main():
 
     # Dist setup
     rank, local_rank, world_size = setup_distributed()
+    
+    # Calculate max_steps from max_tokens if not specified
+    if args.max_steps is None:
+        # Global batch size = micro_batch * grad_accum * world_size * seq_len
+        tokens_per_step = args.batch_size * args.grad_accum * world_size * args.seq_len
+        args.max_steps = math.ceil(args.max_tokens / tokens_per_step)
+        if rank == 0:
+            print(f"📈 Training for {args.max_tokens / 1e9:.1f}B tokens")
+            print(f"   Tokens per step: {tokens_per_step:,}")
+            print(f"   Total steps: {args.max_steps:,}")
+    else:
+        if rank == 0:
+            print(f"🎯 Training for fixed {args.max_steps:,} steps")
+
     if rank == 0:
         print(f"🚀 Training on {world_size} GPUs (Rank 0)")
 

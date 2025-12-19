@@ -19,10 +19,10 @@ from .memory import MemoryState
 @dataclass
 class TitansConfig:
     """Configuration for Titans models."""
-    vocab_size: int = 32000
-    d_model: int = 768
-    n_layers: int = 12
-    n_heads: int = 12
+    vocab_size: int = 50257
+    d_model: int = 1024
+    n_layers: int = 11
+    n_heads: int = 16
     n_persistent: int = 8
     segment_size: int = 512  # For MAC
     window_size: int = 256   # For MAG/MAL
@@ -160,14 +160,15 @@ class TitansLM(nn.Module):
         return input_ids
 
 
-def create_titans_model(variant: str = "mac", size: str = "small") -> TitansLM:
+def create_titans_model(variant: str = "mac", size: str = "300M") -> TitansLM:
     """Factory function to create Titans models."""
     sizes = {
         "tiny": dict(d_model=256, n_layers=6, n_heads=4),
         "small": dict(d_model=512, n_layers=8, n_heads=8),
         "medium": dict(d_model=768, n_layers=12, n_heads=12),
+        "300M": dict(d_model=1024, n_layers=11, n_heads=16),
         "large": dict(d_model=1024, n_layers=24, n_heads=16),
     }
     
-    config = TitansConfig(variant=variant, **sizes.get(size, sizes["small"]))
+    config = TitansConfig(variant=variant, **sizes.get(size, sizes["300M"]))
     return TitansLM(config)
