@@ -9,7 +9,6 @@
   <a href="#"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"/></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.10+-blue"/></a>
   <a href="#"><img src="https://img.shields.io/badge/pytorch-2.0+-red"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/status-active%20research-purple"/></a>
 </p>
 
 
