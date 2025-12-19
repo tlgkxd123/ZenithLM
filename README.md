@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/titans-banner.png" width="80%" alt="Titans LLM Banner"/>
+  <img src="logo.png" width="80%" alt="Titans LLM Banner"/>
 </p>
 
 <h1 align="center">ZenithLM</h1>
