@@ -12,3 +12,8 @@
   <a href="#"><img src="https://img.shields.io/badge/status-active%20research-purple"/></a>
 </p>
 
+
+
+
+
+** Using Google's Titans Architecture **
